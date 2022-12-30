@@ -1,0 +1,13 @@
+DRIVE_PATH
+    [max velocity (m/s)] [max acceleration(m/s^2)] [turn speed constant] [waypoint count]
+    [start x] [start y] [start theta] [control distance]
+    [point x] [point y] [control theta] [before distance] [after distance]
+    [end x] [end y] [end theta] [control distance]
+    [end velocity]
+
+TURN_IN_PLACE
+    [max angular velocity (rad/s)] [max angular acceleration (rad/s^2)]
+    [end theta]
+
+HOLD
+    [time (ms)]
