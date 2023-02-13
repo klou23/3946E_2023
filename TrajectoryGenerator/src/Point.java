@@ -64,7 +64,7 @@ public class Point {
         double D = (x1*x1+y1*y1)*(x3*y2-x2*y3)+(x2*x2+y2*y2)*(x1*y3-x3*y1)+
                 (x3*x3+y3*y3)*(x2*y1-x1*y2);
 
-        if(A == 0) return 0;
+        if(A < 0.0001) return 0;
         double r = Math.sqrt((B*B+C*C-4*A*D)/(4*A*A));
         return 1.0/r;
     }
