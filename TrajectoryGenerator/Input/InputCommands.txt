@@ -7,7 +7,11 @@ DRIVE_PATH
 
 TURN_IN_PLACE
     [max angular velocity (rad/s)] [max angular acceleration (rad/s^2)]
-    [end theta]
+    [end theta()]
+
+DRIVE_REV
+    [max velocity (m/s)] [max acceleration(m/s^2)]
+    [dist (m)]
 
 HOLD
     [time (ms)]

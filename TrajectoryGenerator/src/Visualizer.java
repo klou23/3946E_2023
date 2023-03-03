@@ -31,12 +31,12 @@ public class Visualizer extends JPanel implements ActionListener {
     final static boolean showInput = true;
     final static boolean showOutput = true;
     final static boolean showOutputRobot = true;
-    final static boolean showActual = false;
-    final static boolean showActualRobot = false;
+    final static boolean showActual = true;
+    final static boolean showActualRobot = true;
 
-    final static double metersShown = 15;
+    final static double metersShown = 4;
 
-    final static Grid grid = new Grid(1.8288, 1);
+    final static Grid grid = new Grid(1.8288, 3);
 
     final static String pathName = "DriveTest";
 
@@ -124,9 +124,7 @@ public class Visualizer extends JPanel implements ActionListener {
                 double x = Double.parseDouble(st.nextToken());
                 double y = Double.parseDouble(st.nextToken());
                 double theta = Double.parseDouble(st.nextToken());
-                double v = Double.parseDouble(st.nextToken());
-                double omega = Double.parseDouble(st.nextToken());
-                trajectory.add(new State(x, y, theta, v, omega));
+                robot.add(new RobotState(x, y, theta));
             }
         }
     }
@@ -162,11 +160,13 @@ public class Visualizer extends JPanel implements ActionListener {
         }
 
         if(showActual){
-
+            for(RobotState s : robot){
+                s.drawPoint(g2d, transform);
+            }
         }
 
         if(showActualRobot){
-
+            robot.get(Math.min(index2, trajectory.size()-1)).drawRobot(g2d, transform);
         }
     }
 

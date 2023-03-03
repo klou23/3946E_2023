@@ -41,6 +41,7 @@ public class Main {
             if(line.equals("DRIVE_PATH")) drivePath();
             if(line.equals("HOLD")) hold();
             if(line.equals("TURN_IN_PLACE")) turnInPlace();
+            if(line.equals("DRIVE_REV")) driveRev();
         }
 
         //output
@@ -62,7 +63,7 @@ public class Main {
     public static void hold() throws IOException {
         //read input
         StringTokenizer st = new StringTokenizer(br.readLine());
-        double time = Integer.parseInt(st.nextToken());
+        double time = Double.parseDouble(st.nextToken());
         time /= 1000.0;
 
         double xPos = (x.isEmpty() ? 0 : x.get(x.size()-1));
@@ -230,13 +231,94 @@ public class Main {
         Point[] points = bezier(startPoint, waypoints, endPoint);
         double[] dist = calculateDistance(points);
         double[] curvature = calculateCurvature(points);
-        double[] vels = calculateVels(points, curvature, dist, maxVel, maxAccel, turnSpeedConstant,
-                                      (v.isEmpty() ? 0 : v.get(v.size()-1)), endVel);
+        double[] vels = calculateVels(points, curvature, dist, maxVel, maxAccel, turnSpeedConstant, (v.isEmpty() ? 0 : v.get(v.size()-1)), endVel);
 
         int startIndex = v.size();
         selectPoints(points, vels, dist);
         calculateTheta(startIndex);
         calculateOmega(startIndex);
+    }
+
+    public static void driveRev() throws IOException {
+        //read input
+        StringTokenizer st = new StringTokenizer(br.readLine());
+        double maxVel = Double.parseDouble(st.nextToken());
+        double maxAccel = Double.parseDouble(st.nextToken());
+
+        st = new StringTokenizer(br.readLine());
+        double dist = Double.parseDouble(st.nextToken());
+
+        double x0 = (x.isEmpty() ? 0 : x.get(x.size()-1));
+        double y0 = (y.isEmpty() ? 0 : y.get(y.size()-1));
+        double theta0 = (theta.isEmpty() ? 0 : theta.get(theta.size()-1));
+
+        List<Point> points = new ArrayList<>();
+        for(double i = 0; i <= 1; i += 0.0001){
+            points.add(new Point(x0, y0));
+            x0 -= Math.cos(theta0)*dist*0.0001;
+            y0 -= Math.sin(theta0)*dist*0.0001;
+        }
+
+        Point[] path = new Point[points.size()];
+        for(int i = 0; i < points.size(); i++){
+            path[i] = points.get(i);
+        }
+
+        double[] distArr = calculateDistance(path);
+
+        int pathLen = path.length;
+        double[] vels = new double[pathLen];
+
+        for(int i = 0; i < pathLen; i++){
+            vels[i] = 1<<30;
+        }
+
+        vels[pathLen-1] = 0;
+        for(int i = pathLen-2; i >= 0; i--){
+            double distance = distArr[i+1]-distArr[i];
+            vels[i] = Math.min(vels[i], Math.sqrt(vels[i+1]*vels[i+1] + 2*maxAccel*distance));
+        }
+
+        vels[0] = 0;
+        for(int i = 1; i < pathLen; i++){
+            double distance = distArr[i]-distArr[i-1];
+            vels[i] = Math.min(vels[i], Math.sqrt(vels[i-1]*vels[i-1] + 2*maxAccel*distance));
+        }
+
+        for(int i = 0; i < pathLen; i++){
+            vels[i] *= -1;
+        }
+
+        x.add(path[0].x);
+        y.add(path[0].y);
+        v.add(vels[0]);
+        theta.add(theta0);
+        omega.add(0.0);
+
+        double timeElapsed = 0;
+        for(int i = 1; i < path.length; i++){
+            double distance = distArr[i]-distArr[i-1];
+            double time = Math.abs(distance/((vels[i-1]+vels[i])/2));
+            timeElapsed += time;
+            if(timeElapsed > decompositionInterval){
+                x.add(path[i].x);
+                y.add(path[i].y);
+                v.add(vels[i]);
+                theta.add(theta0);
+                omega.add(0.0);
+                timeElapsed = 0;
+            }
+        }
+
+        if(x.get(x.size()-1) != path[path.length-1].x ||
+                y.get(y.size()-1) != path[path.length-1].y ||
+                v.get(v.size()-1) != vels[vels.length-1]){
+            x.add(path[path.length-1].x);
+            y.add(path[path.length-1].y);
+            v.add(vels[vels.length-1]);
+            omega.add(0.0);
+            theta.add(theta0);
+        }
     }
 
     /**

@@ -9,8 +9,10 @@ public:
     using pros::Rotation::Rotation;
 
     radian_t getPosition(){
-        return radian_t(convert<degree, radian>(((double)get_position())/100.0));
+        double ret = get_position()/100.0;
+        return radian_t(ret * (M_PI/180));
     }
+
 };
 
 
