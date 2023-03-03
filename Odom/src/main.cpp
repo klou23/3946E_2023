@@ -1,82 +1,656 @@
 #include "main.h"
+#include "squiggles.hpp"
+#include <fstream>
 
-std::shared_ptr<ChassisController> drive;
+/*** Initialization ***/
+Controller master(okapi::ControllerId::master);
+Controller partner(okapi::ControllerId::partner);
 
-/**
- * Runs initialization code. This occurs as soon as the program is started.
- *
- * All other competition modes are blocked by initialize; it is recommended
- * to keep execution time for this mode under a few seconds.
- */
-void initialize() {
-	pros::lcd::initialize();
+Motor l1(3, true, AbstractMotor::gearset::blue, AbstractMotor::encoderUnits::degrees);
+Motor l2(4, true, AbstractMotor::gearset::blue, AbstractMotor::encoderUnits::degrees);
+Motor r1(10, false, AbstractMotor::gearset::blue, AbstractMotor::encoderUnits::degrees);
+Motor r2(12, false, AbstractMotor::gearset::blue, AbstractMotor::encoderUnits::degrees);
 
-    drive = ChassisControllerBuilder()
-            .withMotors(1, -10)
-            .withDimensions(AbstractMotor::gearset::green, {{4_in, 11.5_in}, imev5GreenTPR})
-            .build();
+Motor intake(9, true, AbstractMotor::gearset::blue, AbstractMotor::encoderUnits::degrees);
 
+Motor flywheel1(2, true, AbstractMotor::gearset::blue, AbstractMotor::encoderUnits::degrees);
+Motor flywheel2(5, false, AbstractMotor::gearset::blue, AbstractMotor::encoderUnits::degrees);
+//Motor indexer(21, true, AbstractMotor::gearset::red, AbstractMotor::encoderUnits::degrees);
+Motor indexer(21, true, AbstractMotor::gearset::red, AbstractMotor::encoderUnits::degrees);
+
+pros::IMU gyro(7);
+
+RotationSensor odomL(13, true);
+RotationSensor odomR(11);
+
+const QLength lOdomWheelDiam = 2.7655734109_in;
+const QLength rOdomWheelDiam = 2.732338269_in;
+const QLength odomTrackWidth = 2.5507200007_in;
+
+const double ROBOT_WIDTH = 0.3556;  //meters
+
+const double MAX_VEL_FAST = 1;     // m/s
+const double MAX_ACCEL_FAST = 1.5;   // m/s^2
+const double MAX_JERK_FAST = 2.0;    // m/s^3
+
+const double MAX_VEL_MED = 0.5;     // m/s
+const double MAX_ACCEL_MED = 1.0;   // m/s^2
+const double MAX_JERK_MED = 2.0;    // m/s^3
+
+const double MAX_VEL_SLOW = 0.25;    // m/s
+const double MAX_ACCEL_SLOW = 0.75;  // m/s^2
+const double MAX_JERK_SLOW = 1.5;  // m/s^3
+
+const double MAX_VEL_SUPER_SLOW = 0.1;      // m/s
+const double MAX_ACCEL_SUPER_SLOW = 1.0;    // m/s^2
+const double MAX_JERK_SUPER_SLOW = 1.5;     // m/s^3
+
+squiggles::Constraints constraintsFast = squiggles::Constraints(MAX_VEL_FAST, MAX_ACCEL_FAST, MAX_JERK_FAST);
+squiggles::Constraints constraintsMed = squiggles::Constraints(MAX_VEL_MED, MAX_ACCEL_MED, MAX_JERK_MED);
+squiggles::Constraints constraintsSlow = squiggles::Constraints(MAX_VEL_SLOW, MAX_ACCEL_SLOW, MAX_JERK_SLOW);
+squiggles::Constraints constraintsSuperSlow = squiggles::Constraints(MAX_VEL_SUPER_SLOW, MAX_ACCEL_SUPER_SLOW,
+                                                                     MAX_JERK_SUPER_SLOW);
+
+squiggles::SplineGenerator generatorFast = squiggles::SplineGenerator(
+        constraintsFast,
+        std::make_shared<squiggles::TankModel>(ROBOT_WIDTH, constraintsFast), 0.01);
+squiggles::SplineGenerator generatorMed = squiggles::SplineGenerator(
+        constraintsMed,
+        std::make_shared<squiggles::TankModel>(ROBOT_WIDTH, constraintsMed), 0.01);
+squiggles::SplineGenerator generatorSlow = squiggles::SplineGenerator(
+        constraintsSlow,
+        std::make_shared<squiggles::TankModel>(ROBOT_WIDTH, constraintsSlow), 0.01);
+squiggles::SplineGenerator generatorSuperSlow = squiggles::SplineGenerator(
+        constraintsSuperSlow,
+        std::make_shared<squiggles::TankModel>(ROBOT_WIDTH, constraintsSuperSlow), 0.01);
+
+std::shared_ptr<ChassisController> chassis =
+        ChassisControllerBuilder()
+                .withMotors({-3,-4},{10,12})
+                        // Green gearset, 4 in wheel diam, 11.5 in wheel track
+                .withDimensions({AbstractMotor::gearset::blue, (72.0 / 36.0)}, {{3.25_in, 14.11_in}, imev5BlueTPR})
+                .withMaxVelocity(300)
+                .build();
+
+QLength robotX;
+QLength robotY;
+QAngle robotTheta;
+
+double lastLeft;
+double lastRight;
+
+void odometry(void* param){
+
+    while(true){
+//        double trackingWheelDiam = odomWheelDiam.convert(inch);
+        double trackingWheelDiam = 2.75;
+        double trackingDiam = odomTrackWidth.convert(inch);
+
+        double curLeft = odomL.get() * (M_PI/180.0);
+        double curRight = odomR.get() * (M_PI/180.0);
+
+        double deltaL = (curLeft-lastLeft) * trackingWheelDiam/2;
+        double deltaR = (curRight-lastRight) * trackingWheelDiam/2;
+
+        lastLeft = curLeft;
+        lastRight = curRight;
+
+        double d = (deltaL + deltaR)/2.0;
+
+//        QAngle thetaNew = radian * ((curRight-curLeft)/trackingDiam);
+//        QAngle thetaNew = robotTheta + radian * ((deltaR - deltaL)/trackingDiam);
+        QAngle thetaNew = gyro.get_rotation()*-1.0202751342*degree;
+        double thetaM = (robotTheta.convert(radian)+thetaNew.convert(radian))/2.0;
+
+        double cosRot = std::cos(thetaM);
+        double sinRot = std::sin(thetaM);
+
+        robotX += (d * cosRot) * inch;
+        robotY += (d * sinRot) * inch;
+        robotTheta = thetaNew;
+
+        pros::delay(10);
+    }
+}
+
+squiggles::Pose makePose(QLength x, QLength y, QAngle theta){
+    double x_m = x.convert(meter);
+    double y_m = y.convert(meter);
+    double theta_rad = theta.convert(radian);
+    return squiggles::Pose(x_m, y_m, theta_rad);
+}
+
+double wheelVeltoRPM(double wheelVel){
+    double inchesPerMinute = wheelVel * 2362.2;
+    double wheelCircumferenceInch = 10.2101761242;
+    double RPM = inchesPerMinute/wheelCircumferenceInch;
+    return RPM*2.0;
+}
+
+void followPath(std::vector<squiggles::ProfilePoint> path){
+
+    int index = 0;
+    while(true){
+        std::ifstream fin("/usd/log_target" + std::to_string(index) + ".txt");
+        if(!fin.good()) break;
+        else index++;
+    }
+
+    std::ofstream fout_actual("/usd/log_actual" + std::to_string(index) + ".txt");
+    std::ofstream fout_target("/usd/log_target" + std::to_string(index) + ".txt");
+
+    for(squiggles::ProfilePoint p : path){
+
+        double targX = p.vector.pose.x;
+        double targY = p.vector.pose.y;
+        double targTheta = p.vector.pose.yaw;
+
+        fout_actual << robotX.convert(meter) << " " << robotY.convert(meter) << " " << robotTheta.convert(radian) <<std::endl;
+        fout_target << targX << " " << targY << " " << targTheta << std::endl;
+
+        double leftWheelVel = p.wheel_velocities[0];
+        double rightWheelVel = p.wheel_velocities[1];
+
+        double leftRPM = wheelVeltoRPM(leftWheelVel);
+        double rightRPM = wheelVeltoRPM(rightWheelVel);
+
+        l1.moveVelocity(leftRPM);
+        l2.moveVelocity(leftRPM);
+        r1.moveVelocity(rightRPM);
+        r2.moveVelocity(rightRPM);
+
+        pros::delay(10);
+    }
+    l1.moveVelocity(0);
+    l2.moveVelocity(0);
+    r1.moveVelocity(0);
+    r2.moveVelocity(0);
+
+    fout_target.close();
+    fout_actual.close();
+}
+
+std::vector<double> ramseteWheelVels(double targX, double targY, double targTheta, std::vector<double> wheelVels){
+//    double b = 2.0;
+//    double zeta = 0.7;
+    double b = 10.0;
+    double zeta = 0.7;
+
+    double lv = wheelVels[0];
+    double rv = wheelVels[1];
+
+    double targV = (lv+rv)/2;
+    double targOmega = (rv-lv)/ROBOT_WIDTH;
+
+    double deltaX = targX - robotX.convert(meter);
+    double deltaY = targY - robotY.convert(meter);
+    double robotPos = robotTheta.convert(radian);
+//    if(robotPos > 0){
+//        while(robotPos > 0) robotPos -= 2*M_PI;
+//        robotPos += 2*M_PI;
+//    }else if(robotPos < 0){
+//        while(robotPos < 0) robotPos += 2*M_PI;
+//        robotPos -= 2*M_PI;
+//    }
+//    if(robotPos < 0) robotPos += 2*M_PI;
+    if(targTheta > 0){
+        while(targTheta > 0) targTheta -= 2*M_PI;
+        targTheta += 2*M_PI;
+    }else if(targTheta < 0){
+        while(targTheta < 0) targTheta += 2*M_PI;
+        targTheta -= 2*M_PI;
+    }
+    if(targTheta < 0) targTheta += 2*M_PI;
+
+    double deltaT = 1<<30;
+    for(int i = -10; i <= 10; i++){
+        double robotPos = robotTheta.convert(radian) + i*2*M_PI;
+        double turn = targTheta - robotPos;
+        if(std::abs(turn) < std::abs(deltaT)){
+            deltaT = turn;
+        }
+    }
+
+//    double deltaT = targTheta - robotPos;
+
+//    double deltaT = targTheta - robotTheta.convert(radian);
+
+    if(std::abs(deltaT) < 0.000001) deltaT += 0.0001;
+
+    double theta = robotTheta.convert(radian);
+
+    double ex = std::cos(theta)*deltaX + std::sin(theta)*deltaY;
+    double ey = -std::sin(theta)*deltaX + std::cos(theta)*deltaY;
+    double et = deltaT;
+
+    double k = 2*zeta*sqrt(targOmega*targOmega + b*targV*targV);
+
+    double v = targV*std::cos(et)+k*ex;
+    double omega = targOmega + k*et + b*targV*sin(et)*ey/et;
+
+    std::vector<double> sol;
+    sol.push_back(v - 0.5*omega*ROBOT_WIDTH);
+    sol.push_back(v + 0.5*omega*ROBOT_WIDTH);
+    return sol;
+}
+
+void followPathRamsete(std::vector<squiggles::ProfilePoint> path){
+
+    int index = 0;
+    while(true){
+        std::ifstream fin("/usd/log_target" + std::to_string(index) + ".txt");
+        if(!fin.good()) break;
+        else index++;
+    }
+
+    std::ofstream fout_actual("/usd/log_actual" + std::to_string(index) + ".txt");
+    std::ofstream fout_target("/usd/log_target" + std::to_string(index) + ".txt");
+
+    for(squiggles::ProfilePoint p : path){
+        double targX = p.vector.pose.x;
+        double targY = p.vector.pose.y;
+        double targTheta = p.vector.pose.yaw;
+
+        fout_actual << robotX.convert(meter) << " " << robotY.convert(meter) << " " << robotTheta.convert(radian) <<std::endl;
+        fout_target << targX << " " << targY << " " << targTheta << std::endl;
+
+        auto wheelVels = ramseteWheelVels(targX, targY, targTheta, p.wheel_velocities);
+
+        double leftWheelVel = wheelVels[0];
+        double rightWheelVel = wheelVels[1];
+
+        double leftRPM = wheelVeltoRPM(leftWheelVel);
+        double rightRPM = wheelVeltoRPM(rightWheelVel);
+
+        l1.moveVelocity(leftRPM);
+        l2.moveVelocity(leftRPM);
+        r1.moveVelocity(rightRPM);
+        r2.moveVelocity(rightRPM);
+
+        pros::delay(10);
+    }
+    l1.moveVelocity(0);
+    l2.moveVelocity(0);
+    r1.moveVelocity(0);
+    r2.moveVelocity(0);
+
+    fout_target.close();
+    fout_actual.close();
 }
 
 /**
- * Runs while the robot is in the disabled state of Field Management System or
- * the VEX Competition Switch, following either autonomous or opcontrol. When
- * the robot is enabled, this task will exit.
+ * Drives robot to state
+ * @param x target x position
+ * @param y target y position
+ * @param theta target heading
+ * @param speed squiggles controller to use (1-slow, 2-med, 3-fast)
+ * @param ramsete whether or not use use ramsete controller
  */
+void driveToPose(QLength x, QLength y, QAngle theta, int speed, bool ramsete = false){
+    squiggles::Pose curPose = makePose(robotX, robotY, robotTheta);
+    squiggles::Pose targPose = makePose(x, y, theta);
+
+    std::vector<squiggles::ProfilePoint> path;
+
+    if(speed == 0){
+        path = generatorSuperSlow.generate({curPose, targPose});
+    }else if(speed == 1){
+        path = generatorSlow.generate({curPose, targPose});
+    }else if(speed == 2){
+        path = generatorMed.generate({curPose, targPose});
+    }else if(speed == 3){
+        path = generatorFast.generate({curPose, targPose});
+    }
+
+    if(ramsete) followPathRamsete(path);
+    else followPath(path);
+}
+
+void driveDist(QLength dist, int vel){
+    chassis->setMaxVelocity(vel);
+    chassis->moveDistance(dist);
+}
+
+void driveDistRamsete(QLength dist, int speed){
+    squiggles::Pose curPose = makePose(robotX, robotY, robotTheta);
+
+    QLength targetX = robotX + std::cos(robotTheta.convert(radian))*dist;
+    QLength targetY = robotY + std::sin(robotTheta.convert(radian))*dist;
+
+    squiggles::Pose targPose = makePose(targetX, targetY, robotTheta);
+
+    std::vector<squiggles::ProfilePoint> path;
+
+    if(speed == 0){
+        path = generatorSuperSlow.generate({curPose, targPose});
+    }else if(speed == 1){
+        path = generatorSlow.generate({curPose, targPose});
+    }else if(speed == 2){
+        path = generatorMed.generate({curPose, targPose});
+    }else if(speed == 3){
+        path = generatorFast.generate({curPose, targPose});
+    }
+
+    followPathRamsete(path);
+}
+
+void turnAngle(QAngle angle, int vel){
+    chassis->setMaxVelocity(vel);
+    chassis->turnAngle(-angle);
+}
+
+void turnToAngle(QAngle angle, int vel){
+    double angleRad = angle.convert(radian);
+    if(angleRad > 0){
+        while(angleRad > 0){
+            angleRad -= 2*M_PI;
+        }
+        angleRad += 2*M_PI;
+    }else if(angleRad < 0){
+        while(angleRad < 0){
+            angleRad += 2*M_PI;
+        }
+        angleRad -= 2*M_PI;
+    }
+    if(angleRad < 0) angleRad += 2*M_PI;
+
+    double minTurn = 1<<30;
+    for(int i = -10; i <= 10; i++){
+        double robotPos = robotTheta.convert(radian) + i*2*M_PI;
+        double turn = angleRad - robotPos;
+        if(std::abs(turn) < std::abs(minTurn)){
+            minTurn = turn;
+        }
+    }
+
+//    double robotPos = robotTheta.convert(radian);
+//    if(robotPos > 0){
+//        while(robotPos > 0) robotPos -= 2*M_PI;
+//        robotPos += 2*M_PI;
+//    }else if(robotPos < 0){
+//        while(robotPos < 0) robotPos += 2*M_PI;
+//        robotPos -= 2*M_PI;
+//    }
+//    if(robotPos < 0) robotPos += 2*M_PI;
+//
+//    turnAngle((angleRad - robotPos)*radian, vel);
+    turnAngle(minTurn*radian, vel);
+}
+
+namespace Shooter{
+
+    double targetVel = 0;
+    double gain = 0.00001;
+    double output = 0;
+    double prevError = 0;
+    double tbh = 0;
+
+    double signum(double a){
+        return (a>0) ? 1.0 : -1.0;
+    }
+
+    void setSpeed(double vel){
+        targetVel = vel;
+        output = 1*vel/3000.0;
+        tbh = 1*vel/3000.0;
+    }
+
+    void shoot(){
+        indexer.moveAbsolute(55, 600);
+        while(indexer.getPosition() < 54){
+            pros::delay(10);
+        }
+        indexer.moveAbsolute(-3, 600);
+        while(indexer.getPosition() > 0){
+            pros::delay(10);
+        }
+    }
+
+    void speedControl(void* param){
+        while(true){
+            //run flywheel using TBH controller
+            double error = targetVel - (flywheel1.getActualVelocity() * 5);
+            output += gain * error;
+            output = std::min(output, 1.0);
+            output = std::max(output, 0.0);
+            if (signum(error) != signum(prevError)) {
+                output = 0.5 * (output + tbh);
+                tbh = output;
+                prevError = error;
+            }
+            if (targetVel < 1) output = 0;
+            flywheel1.moveVoltage(output * 12000);
+            flywheel2.moveVoltage(output * 12000);
+
+            pros::delay(10);
+        }
+
+    }
+
+    void op_control(void* param) {
+        double output = 0;
+        double prevError = 0;
+        double tbh = 0;
+
+        bool indexerPrev = false;
+        bool indexerOn = false;
+
+        while (true) {
+            //set target vel, tbh, and output
+            if (partner.getDigital(ControllerDigital::up)) {
+                targetVel = 3000;
+                tbh = 1;
+                output = 1;
+            } else if (partner.getDigital(ControllerDigital::right)) {
+                targetVel = 2400;
+                tbh = 0.83;
+                output = 0.83;
+            } else if (partner.getDigital(ControllerDigital::down)) {
+                targetVel = 2200;
+                tbh = 0.77;
+                output = 0.77;
+            } else if (partner.getDigital(ControllerDigital::B)) {
+                targetVel = 0;
+                tbh = 0;
+                output = 0;
+            }
+
+            //run flywheel using TBH controller
+            double error = targetVel - (flywheel1.getActualVelocity() * 5);
+            output += gain * error;
+            output = std::min(output, 1.0);
+            output = std::max(output, 0.0);
+            if (signum(error) != signum(prevError)) {
+                output = 0.5 * (output + tbh);
+                tbh = output;
+                prevError = error;
+            }
+            if (targetVel < 1) output = 0;
+            flywheel1.moveVoltage(output * 12000);
+            flywheel2.moveVoltage(output * 12000);
+
+            //control indexer
+            if(partner.getDigital(ControllerDigital::R1) && !indexerPrev && targetVel > 0.001){
+                indexerOn = true;
+            }else if(partner.getDigital(ControllerDigital::R2)){
+                indexerOn = false;
+            }
+            indexerPrev = partner.getDigital(ControllerDigital::R1);
+
+            if(indexer.getPosition() > 54){
+                indexerOn = false;
+            }
+
+            indexer.moveAbsolute(indexerOn ? 55:-3, 100);
+
+            pros::delay(10);
+        }
+    }
+}
+
+void scoreRoller(int maxWait){
+
+}
+
+void initialize() {
+	pros::lcd::initialize();
+
+    odomL.reset();
+    odomR.reset();
+
+    pros::delay(200);
+
+    lastLeft = odomL.get() * (M_PI/180.0);
+    lastRight = odomR.get() * (M_PI/180.0);
+
+    robotX = 0_m;
+    robotY = 0_m;
+    robotTheta = 0_rad;
+
+    gyro.reset(true);
+    pros::delay(2000);
+    pros::lcd::set_text(2, "IMU calibrated");
+}
+
 void disabled() {}
 
-/**
- * Runs after initialize(), and before autonomous when connected to the Field
- * Management System or the VEX Competition Switch. This is intended for
- * competition-specific initialization routines, such as an autonomous selector
- * on the LCD.
- *
- * This task will exit when the robot is enabled and autonomous or opcontrol
- * starts.
- */
 void competition_initialize() {}
 
-/**
- * Runs the user autonomous code. This function will be started in its own task
- * with the default priority and stack size whenever the robot is enabled via
- * the Field Management System or the VEX Competition Switch in the autonomous
- * mode. Alternatively, this function may be called in initialize or opcontrol
- * for non-competition testing purposes.
- *
- * If the robot is disabled or communications is lost, the autonomous task
- * will be stopped. Re-enabling the robot will restart the task, not re-start it
- * from where it left off.
- */
-void autonomous() {}
+void prog() {
 
-/**
- * Runs the operator control code. This function will be started in its own task
- * with the default priority and stack size whenever the robot is enabled via
- * the Field Management System or the VEX Competition Switch in the operator
- * control mode.
- *
- * If no competition control is connected, this function will run immediately
- * following initialize().
- *
- * If the robot is disabled or communications is lost, the
- * operator control task will be stopped. Re-enabling the robot will restart the
- * task, not resume it from where it left off.
- */
+//    Shooter::setSpeed(2400);
+
+    //get first roller
+    driveDist(1.5_in, 100);
+    intake.moveVelocity(200);
+    pros::delay(350);
+    intake.moveVelocity(0);
+    driveDist(-8_in, 200);
+
+    //get second roller
+    turnToAngle(-100_deg, 300);
+//    turnAngle(-100_deg, 300);
+    intake.moveVelocity(600);
+    driveToPose(-14_in, -27_in, -90_deg, 2, true);
+    intake.moveVelocity(0);
+    driveDist(1.5_in, 100);
+    intake.moveVelocity(200);
+    pros::delay(500);
+    intake.moveVelocity(0);
+    driveDist(-12_in, 200);
+    intake.moveVelocity(600);
+
+    //shoot
+    turnToAngle(70_deg, 300);
+    Shooter::setSpeed(2200);
+    driveToPose(1_in, 40.5_in, 90_deg, 2, true);
+//    turnToAngle(100_deg, 200);
+//    driveDist(-5_in, 100);
+//    turnToAngle(90_deg, 200);
+//    driveDist(6_in, 100);
+    turnToAngle(98_deg, 200);
+    for(int i = 0; i < 10; i++){
+        Shooter::shoot();
+        pros::delay(700);
+    }
+    Shooter::shoot();
+    driveDist(-5_in, 200);
+    turnToAngle(180_deg, 300);
+    Shooter::setSpeed(2400);
+    driveToPose(-53_in, 46_in, 135_deg, 2, true);
+    driveDistRamsete(34_in, 2);
+    turnToAngle(7_deg, 200);
+//    driveDist(24_in, 300);
+    for(int i = 0; i < 2; i++){
+        Shooter::shoot();
+        pros::delay(700);
+    }
+    Shooter::shoot();
+
+    turnToAngle(130_deg, 300);
+    driveDist(20_in, 200);
+    turnToAngle(270_deg, 300);
+    intake.moveVelocity(0);
+    driveDist(20_in, 200);
+    turnToAngle(220_deg, 300);
+    driveToPose(-119_in, 30_in, 261_deg, 2, true);
+    turnToAngle(278_deg, 200);
+    turnToAngle(278_deg, 200);
+    for(int i = 0; i < 7; i++){
+        Shooter::shoot();
+        pros::delay(700);
+    }
+    Shooter::shoot();
+
+//    driveToPose(-85_in, 70_in, 200_deg, 2, true);
+
+
+    //shoot
+//    turnToAngle(-180_deg, 300);
+//    driveDist(48_in, 200);
+//    turnToAngle(-178_deg, 200);
+//    Shooter::shoot();
+//    pros::delay(500);
+//    Shooter::shoot();
+//    pros::delay(500);
+//    Shooter::shoot();
+//    pros::delay(500);
+//    Shooter::shoot();
+//    turnToAngle(-180_deg, 200);
+//    driveDist(-55_in, 200);
+//    turnToAngle(10_deg, 300);
+
+}
+
+void autonomous() {
+    pros::Task odom(odometry);
+    pros::Task flywheel(Shooter::speedControl);
+
+    l1.setBrakeMode(AbstractMotor::brakeMode::hold);
+    l2.setBrakeMode(AbstractMotor::brakeMode::hold);
+    r1.setBrakeMode(AbstractMotor::brakeMode::hold);
+    r2.setBrakeMode(AbstractMotor::brakeMode::hold);
+    intake.setBrakeMode(AbstractMotor::brakeMode::hold);
+
+    prog();
+
+    l1.setBrakeMode(AbstractMotor::brakeMode::coast);
+    l2.setBrakeMode(AbstractMotor::brakeMode::coast);
+    r1.setBrakeMode(AbstractMotor::brakeMode::coast);
+    r2.setBrakeMode(AbstractMotor::brakeMode::coast);
+    intake.setBrakeMode(AbstractMotor::brakeMode::coast);
+}
+
 void opcontrol() {
-	pros::Controller master(pros::E_CONTROLLER_MASTER);
-	pros::Motor left_mtr(1);
-	pros::Motor right_mtr(2);
+
+    pros::Task odom(odometry);
+    pros::Task shooter(Shooter::op_control);
 
 	while (true) {
-		pros::lcd::print(0, "%d %d %d", (pros::lcd::read_buttons() & LCD_BTN_LEFT) >> 2,
-		                 (pros::lcd::read_buttons() & LCD_BTN_CENTER) >> 1,
-		                 (pros::lcd::read_buttons() & LCD_BTN_RIGHT) >> 0);
-		int left = master.get_analog(ANALOG_LEFT_Y);
-		int right = master.get_analog(ANALOG_RIGHT_Y);
 
-		left_mtr = left;
-		right_mtr = right;
+//        pros::lcd::set_text(1, "X: " + std::to_string(robotX.convert(inch)));
+//        pros::lcd::set_text(2, "Y: " + std::to_string(robotY.convert(inch)));
+//        pros::lcd::set_text(3, "T: " + std::to_string(robotTheta.convert(degree)));
+//        pros::lcd::set_text(4, "lenc: " + std::to_string(odomL.get()));
+//        pros::lcd::set_text(5, "renc: " + std::to_string(odomR.get()));
+//        pros::lcd::set_text(6, "Gyro: " + std::to_string(gyro.get_rotation()));
 
-		pros::delay(20);
+        double lv = master.getAnalog(ControllerAnalog::leftY)*600;
+        double rv = master.getAnalog(ControllerAnalog::rightY)*600;
+
+        l1.moveVelocity(lv);
+        l2.moveVelocity(lv);
+        r1.moveVelocity(rv);
+        r2.moveVelocity(rv);
+
+        if(R1.isPressed()){
+            intake.moveVelocity(600);
+        }else if(R2.isPressed()){
+            intake.moveVelocity(-600);
+        }else{
+            intake.moveVelocity(0);
+        }
+
+		pros::delay(10);
 	}
 }
