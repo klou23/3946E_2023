@@ -2,6 +2,8 @@
 #include "squiggles.hpp"
 #include <fstream>
 
+#define SKILLS = true;
+
 /*** Initialization ***/
 Controller master(okapi::ControllerId::master);
 Controller partner(okapi::ControllerId::partner);
@@ -22,6 +24,10 @@ pros::IMU gyro(7);
 
 RotationSensor odomL(13, true);
 RotationSensor odomR(11);
+
+pros::Optical opticalSensor(20);
+
+pros::ADIDigitalOut stringLauncher('B');
 
 const QLength lOdomWheelDiam = 2.7655734109_in;
 const QLength rOdomWheelDiam = 2.732338269_in;
@@ -396,13 +402,17 @@ namespace Shooter{
     }
 
     void shoot(){
-        indexer.moveAbsolute(55, 600);
-        while(indexer.getPosition() < 54){
+        indexer.moveAbsolute(58, 600);
+        int wait = 0;
+        while(indexer.getPosition() < 57 && wait < 250){
             pros::delay(10);
+            wait += 10;
         }
         indexer.moveAbsolute(-3, 600);
-        while(indexer.getPosition() > 0){
+        wait = 0;
+        while(indexer.getPosition() > 0 && wait < 250){
             pros::delay(10);
+            wait += 10;
         }
     }
 
@@ -489,7 +499,13 @@ namespace Shooter{
 }
 
 void scoreRoller(int maxWait){
-
+    intake.moveVelocity(150);
+    int wait = 0;
+    while(wait < maxWait && opticalSensor.get_hue() > 120){
+        wait += 10;
+        pros::delay(10);
+    }
+    intake.moveVelocity(0);
 }
 
 void initialize() {
@@ -522,9 +538,11 @@ void prog() {
 
     //get first roller
     driveDist(1.5_in, 100);
-    intake.moveVelocity(200);
-    pros::delay(350);
-    intake.moveVelocity(0);
+//    intake.moveVelocity(200);
+//    pros::delay(350);
+//    intake.moveVelocity(0);
+    scoreRoller(1000);
+    intake.moveVelocity(-100);
     driveDist(-8_in, 200);
 
     //get second roller
@@ -534,16 +552,18 @@ void prog() {
     driveToPose(-14_in, -27_in, -90_deg, 2, true);
     intake.moveVelocity(0);
     driveDist(1.5_in, 100);
-    intake.moveVelocity(200);
-    pros::delay(500);
-    intake.moveVelocity(0);
+//    intake.moveVelocity(200);
+//    pros::delay(500);
+//    intake.moveVelocity(0);
+    scoreRoller(1000);
+    intake.moveVelocity(-100);
     driveDist(-12_in, 200);
     intake.moveVelocity(600);
 
     //shoot
     turnToAngle(70_deg, 300);
     Shooter::setSpeed(2200);
-    driveToPose(1_in, 40.5_in, 90_deg, 2, true);
+    driveToPose(1_in, 39.5_in, 90_deg, 2, true);
 //    turnToAngle(100_deg, 200);
 //    driveDist(-5_in, 100);
 //    turnToAngle(90_deg, 200);
@@ -554,57 +574,54 @@ void prog() {
         pros::delay(700);
     }
     Shooter::shoot();
+    turnToAngle(90_deg, 200);
     driveDist(-5_in, 200);
     turnToAngle(180_deg, 300);
-    Shooter::setSpeed(2400);
+    Shooter::setSpeed(2300);
     driveToPose(-53_in, 46_in, 135_deg, 2, true);
     driveDistRamsete(34_in, 2);
-    turnToAngle(7_deg, 200);
+    turnToAngle(10_deg, 200);
+    driveDistRamsete(24_in, 2);
 //    driveDist(24_in, 300);
     for(int i = 0; i < 2; i++){
         Shooter::shoot();
-        pros::delay(700);
+        pros::delay(500);
     }
     Shooter::shoot();
 
-    turnToAngle(130_deg, 300);
-    driveDist(20_in, 200);
-    turnToAngle(270_deg, 300);
+    intake.moveVelocity(600);
+    turnToAngle(180_deg, 300);
+    driveToPose(-105_in, 80_in, 180_deg, 2, true);
+    turnToAngle(90_deg, 300);
+    driveDist(8_in, 200);
     intake.moveVelocity(0);
-    driveDist(20_in, 200);
-    turnToAngle(220_deg, 300);
-    driveToPose(-119_in, 30_in, 261_deg, 2, true);
-    turnToAngle(278_deg, 200);
-    turnToAngle(278_deg, 200);
-    for(int i = 0; i < 7; i++){
-        Shooter::shoot();
-        pros::delay(700);
-    }
-    Shooter::shoot();
+//    driveDistRamsete(7_in, 2);
+    driveDist(6.5_in, 200);
+    scoreRoller(1000);
+    intake.moveVelocity(-100);
 
-//    driveToPose(-85_in, 70_in, 200_deg, 2, true);
+    driveDist(-27_in, 200);
+    intake.moveVelocity(600);
+    turnToAngle(180_deg, 300);
+    intake.moveVelocity(0);
+    driveDist(17.5_in, 200);
+    scoreRoller(1000);
+    intake.moveVelocity(-50);
+    driveDist(-24_in, 400);
+    turnToAngle(-45_deg, 400);
+    driveDist(-20_in, 400);
+    stringLauncher.set_value(1);
 
+}
 
-    //shoot
-//    turnToAngle(-180_deg, 300);
-//    driveDist(48_in, 200);
-//    turnToAngle(-178_deg, 200);
-//    Shooter::shoot();
-//    pros::delay(500);
-//    Shooter::shoot();
-//    pros::delay(500);
-//    Shooter::shoot();
-//    pros::delay(500);
-//    Shooter::shoot();
-//    turnToAngle(-180_deg, 200);
-//    driveDist(-55_in, 200);
-//    turnToAngle(10_deg, 300);
+void auton(){
 
 }
 
 void autonomous() {
     pros::Task odom(odometry);
     pros::Task flywheel(Shooter::speedControl);
+    opticalSensor.set_led_pwm(100);
 
     l1.setBrakeMode(AbstractMotor::brakeMode::hold);
     l2.setBrakeMode(AbstractMotor::brakeMode::hold);
@@ -612,7 +629,8 @@ void autonomous() {
     r2.setBrakeMode(AbstractMotor::brakeMode::hold);
     intake.setBrakeMode(AbstractMotor::brakeMode::hold);
 
-    prog();
+    if(SKILLS) prog();
+    else auton();
 
     l1.setBrakeMode(AbstractMotor::brakeMode::coast);
     l2.setBrakeMode(AbstractMotor::brakeMode::coast);
@@ -621,36 +639,87 @@ void autonomous() {
     intake.setBrakeMode(AbstractMotor::brakeMode::coast);
 }
 
+double curve(double input, double exp){
+    double sign = (input < 0) ? (-1.0) : (1.0);
+    return sign * std::abs(std::pow(input, exp));
+}
+
 void opcontrol() {
 
-    pros::Task odom(odometry);
-    pros::Task shooter(Shooter::op_control);
+    if(SKILLS){
+        autonomous();
+    }else{
 
-	while (true) {
+        int driveSpeed = 600;
+        pros::Task flywheel(Shooter::speedControl);
 
-//        pros::lcd::set_text(1, "X: " + std::to_string(robotX.convert(inch)));
-//        pros::lcd::set_text(2, "Y: " + std::to_string(robotY.convert(inch)));
-//        pros::lcd::set_text(3, "T: " + std::to_string(robotTheta.convert(degree)));
-//        pros::lcd::set_text(4, "lenc: " + std::to_string(odomL.get()));
-//        pros::lcd::set_text(5, "renc: " + std::to_string(odomR.get()));
-//        pros::lcd::set_text(6, "Gyro: " + std::to_string(gyro.get_rotation()));
+        bool indexerOn = false;
+        bool indexerPrev = false;
 
-        double lv = master.getAnalog(ControllerAnalog::leftY)*600;
-        double rv = master.getAnalog(ControllerAnalog::rightY)*600;
+        while (true) {
 
-        l1.moveVelocity(lv);
-        l2.moveVelocity(lv);
-        r1.moveVelocity(rv);
-        r2.moveVelocity(rv);
+            /**Drive**/
+            if(master.getDigital(ControllerDigital::up)){
+                driveSpeed = 600;
+            }else if(master.getDigital(ControllerDigital::right)){
+                speed = 450;
+            }else if(master.getDigital(ControllerDigital::down)){
+                speed = 300;
+            }
 
-        if(R1.isPressed()){
-            intake.moveVelocity(600);
-        }else if(R2.isPressed()){
-            intake.moveVelocity(-600);
-        }else{
-            intake.moveVelocity(0);
+            double lv = curve(master.getAnalog(ControllerAnalog::leftY), 2);
+            double rv = curve(master.getAnalog(ControllerAnalog::rightY), 2);
+
+            l1.moveVelocity(lv*driveSpeed);
+            l2.moveVelocity(lv*driveSpeed);
+            r1.moveVelocity(rv*driveSpeed);
+            r2.moveVelocity(rv*driveSpeed);
+
+            /**Shooter**/
+            if(partner.getDigital(ControllerDigital::up)){
+                Shooter::setSpeed(3000);
+            }else if(partner.getDigital(ControllerDigital::right)){
+                Shooter::setSpeed(2400);
+            }else if(partner.getDigital(ControllerDigital::down)){
+                Shooter::setSpeed(2200);
+            }else if(partner.getDigital(ControllerDigital::B)){
+                Shooter::setSpeed(0);
+            }
+
+            if(partner.getDigital(ControllerDigital::R1) && !indexerPrev && Shooter::targetVel > 1){
+                indexerOn = true;
+            }else if(partner.getDigital(ControllerDigital::R2)){
+                indexerOn = false;
+            }
+            indexerPrev = partner.getDigital(ControllerDigital::R1);
+
+            if(indexer.getPosition() > 54){
+                indexerOn = false;
+            }
+
+            indexer.moveAbsolute(indexerOn ? 55:-3, 100);
+
+            /**Intake**/
+            if(master.getDigital(ControllerDigital::L1)){
+                intake.moveVelocity(600);
+            }else if(master.getDigital(ControllerDigital::L2)){
+                intake.moveVelocity(-600);
+            }else if(master.getDigital(okapi::ControllerDigital::R1)){
+                intake.moveVelocity(200);
+            }else if(master.getDigital(okapi::ControllerDigital::R2)){
+                intake.moveVelocity(-200);
+            }else{
+                intake.moveVelocity(0);
+            }
+
+            /**String launcher**/
+            if(master.getDigital(ControllerDigital::left) &&
+               partner.getDigital(okapi::ControllerDigital::left)){
+                pros::lcd::set_text(3, "string launch");
+                stringLauncher.set_value(1);
+            }
+
+            pros::delay(10);
         }
-
-		pros::delay(10);
-	}
+    }
 }
