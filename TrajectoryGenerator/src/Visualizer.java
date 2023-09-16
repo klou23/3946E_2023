@@ -28,17 +28,17 @@ import java.util.StringTokenizer;
 
 public class Visualizer extends JPanel implements ActionListener {
 
-    final static boolean showInput = true;
+    final static boolean showInput = false;
     final static boolean showOutput = true;
     final static boolean showOutputRobot = true;
-    final static boolean showActual = true;
-    final static boolean showActualRobot = true;
+    final static boolean showActual = false;
+    final static boolean showActualRobot = false;
 
-    final static double metersShown = 4;
+    final static double metersShown = 1.25;
 
     final static Grid grid = new Grid(1.8288, 3);
 
-    final static String pathName = "DriveTest";
+    final static String pathName = "Trajectory1";
 
     final static double[][] transform = {{500/metersShown,0,500},{0,-500/metersShown,500},{0,0,1}};
 
@@ -106,10 +106,10 @@ public class Visualizer extends JPanel implements ActionListener {
             br = new BufferedReader(new FileReader("Output/Path" + pathName + ".txt"));
             int n = Integer.parseInt(br.readLine());
             for(int i = 0; i < n; i++){
-                StringTokenizer st = new StringTokenizer(br.readLine());
-                double x = Double.parseDouble(st.nextToken());
-                double y = Double.parseDouble(st.nextToken());
-                double theta = Double.parseDouble(st.nextToken());
+                StringTokenizer st = new StringTokenizer(br.readLine(),",");
+                double x = Double.parseDouble(st.nextToken()) * 0.0254;
+                double y = Double.parseDouble(st.nextToken()) * 0.0254;
+                double theta = Double.parseDouble(st.nextToken()) * Math.PI / 180.0;
                 double v = Double.parseDouble(st.nextToken());
                 double omega = Double.parseDouble(st.nextToken());
                 trajectory.add(new State(x, y, theta, v, omega));

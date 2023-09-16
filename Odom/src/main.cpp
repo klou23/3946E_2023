@@ -2,7 +2,7 @@
 #include "squiggles.hpp"
 #include <fstream>
 
-#define SKILLS = true;
+#define SKILLS false
 
 /*** Initialization ***/
 Controller master(okapi::ControllerId::master);
@@ -369,17 +369,17 @@ void turnToAngle(QAngle angle, int vel){
         }
     }
 
-//    double robotPos = robotTheta.convert(radian);
-//    if(robotPos > 0){
-//        while(robotPos > 0) robotPos -= 2*M_PI;
-//        robotPos += 2*M_PI;
-//    }else if(robotPos < 0){
-//        while(robotPos < 0) robotPos += 2*M_PI;
-//        robotPos -= 2*M_PI;
-//    }
-//    if(robotPos < 0) robotPos += 2*M_PI;
-//
-//    turnAngle((angleRad - robotPos)*radian, vel);
+    double robotPos = robotTheta.convert(radian);
+    if(robotPos > 0){
+        while(robotPos > 0) robotPos -= 2*M_PI;
+        robotPos += 2*M_PI;
+    }else if(robotPos < 0){
+        while(robotPos < 0) robotPos += 2*M_PI;
+        robotPos -= 2*M_PI;
+    }
+    if(robotPos < 0) robotPos += 2*M_PI;
+
+    turnAngle((angleRad - robotPos)*radian, vel);
     turnAngle(minTurn*radian, vel);
 }
 
@@ -596,7 +596,7 @@ void prog() {
     driveDist(8_in, 200);
     intake.moveVelocity(0);
 //    driveDistRamsete(7_in, 2);
-    driveDist(6.5_in, 200);
+    driveDist(6.4_in, 200);
     scoreRoller(1000);
     intake.moveVelocity(-100);
 
@@ -614,8 +614,11 @@ void prog() {
 
 }
 
-void auton(){
-
+void red(){
+    driveDist(1.5_in, 100);
+    intake.moveAbsolute(-400, 100);
+    pros::delay(5000);
+    driveDist(-1.5_in, 200);
 }
 
 void autonomous() {
@@ -629,14 +632,17 @@ void autonomous() {
     r2.setBrakeMode(AbstractMotor::brakeMode::hold);
     intake.setBrakeMode(AbstractMotor::brakeMode::hold);
 
-    if(SKILLS) prog();
-    else auton();
+    red();
+//    prog();
+//    if(SKILLS) prog();
+//    else auton();
 
     l1.setBrakeMode(AbstractMotor::brakeMode::coast);
     l2.setBrakeMode(AbstractMotor::brakeMode::coast);
     r1.setBrakeMode(AbstractMotor::brakeMode::coast);
     r2.setBrakeMode(AbstractMotor::brakeMode::coast);
     intake.setBrakeMode(AbstractMotor::brakeMode::coast);
+    flywheel.suspend();
 }
 
 double curve(double input, double exp){
@@ -658,13 +664,18 @@ void opcontrol() {
 
         while (true) {
 
+            if(master.getDigital(okapi::ControllerDigital::Y)){
+                flywheel.suspend();
+                autonomous();
+            }
+
             /**Drive**/
             if(master.getDigital(ControllerDigital::up)){
                 driveSpeed = 600;
             }else if(master.getDigital(ControllerDigital::right)){
-                speed = 450;
+                driveSpeed = 450;
             }else if(master.getDigital(ControllerDigital::down)){
-                speed = 300;
+                driveSpeed = 300;
             }
 
             double lv = curve(master.getAnalog(ControllerAnalog::leftY), 2);
